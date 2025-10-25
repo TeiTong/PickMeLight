@@ -6,6 +6,8 @@
 // @author       MegaMan
 // @match        https://www.amazon.fr/*
 // @icon         https://vinepick.me/img/PM-ICO-2.png
+// @updateURL    https://raw.githubusercontent.com/teitong/pickmelight/main/PickMeLight.user.js
+// @downloadURL  https://raw.githubusercontent.com/teitong/pickmelight/main/PickMeLight.user.js
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
