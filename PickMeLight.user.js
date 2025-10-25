@@ -1,77 +1,153 @@
 // ==UserScript==
 // @name         PickMe Light
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  Affilié
+// @version      1.4
+// @description  Ajoute le bouton affilié "Acheter via PickMe" sur les pages produits Amazon
 // @author       MegaMan
 // @match        https://www.amazon.fr/*
-// @icon         https://i.ibb.co/Zd9vSZz/PM-ICO-2.png
-// @updateURL    https://raw.githubusercontent.com/TeiTong/pickmelight/main/PickMeLight.user.js
-// @downloadURL  https://raw.githubusercontent.com/TeiTong/pickmelight/main/PickMeLight.user.js
-// @run-at       document-end
+// @icon         https://vinepick.me/img/PM-ICO-2.png
+// @run-at       document-idle
+// @noframes
 // ==/UserScript==
 
 (function() {
     'use strict';
 
-    // Fonction pour extraire l'ASIN
+    if (window.__PML__) {
+        return;
+    }
+    window.__PML__ = true;
+
+    const baseUrlPickme = 'https://vinepick.me';
+    const BUTTON_CONTAINER_ID = 'pickme-button-container';
+    const BUTTON_ID = 'pickme-button';
+
     function getASINfromURL(url) {
-        // Expression régulière pour trouver l'ASIN dans différentes structures d'URL Amazon
-        const regex = /\/(dp|gp\/product|product-reviews|gp\/aw\/d)\/([A-Za-z0-9]{10})/i;
+        const regex = /\/(dp|gp\/product|gp\/aw\/d|gp\/offer-listing)\/([A-Za-z0-9]{10})/i;
         const match = url.match(regex);
-        return match ? match[2] : null; // Retourne l'ASIN ou null si non trouvé
+        return match ? match[2] : null;
     }
 
     function isAffiliateTagPresent() {
         return window.location.search.indexOf('tag=monsieurconso-21') > -1;
     }
 
-    //Ajout du bouton
-    function addButton(asin) {
-        if (!document.querySelector('#pickme-button')) {
-            var priceContainer = document.querySelector('.basisPriceLegalMessage');
-            if (priceContainer) {
-                const affiliateButton = createButton(asin);
-                // Insérez le nouveau bouton dans le DOM juste après le conteneur de prix
-                priceContainer.parentNode.insertBefore(affiliateButton, priceContainer.nextSibling);
-            } else {
-                //priceContainer = document.querySelectorAll('snsPriceRow');
-                //Selecteur du prix desktop ou mobile
-                var priceContainerVar = document.getElementById('corePrice_desktop');
-                if (!priceContainerVar) {
-                    priceContainerVar = document.getElementById('corePrice_mobile_feature_div');
-                    //Gestion pour les livres
-                    if (!priceContainerVar) {
-                        priceContainer = document.getElementById("bookDescription_feature_div");
-                        if (priceContainer) {
-                            const affiliateButton = createButton(asin);
-                            priceContainer.parentNode.insertBefore(affiliateButton, priceContainer);
-                        }
+    function isElementVisible(element) {
+        if (!element) {
+            return false;
+        }
+
+        if (typeof element.offsetParent !== 'undefined' && element.offsetParent !== null) {
+            return true;
+        }
+
+        const rects = element.getClientRects();
+        return !!(rects && rects.length > 0);
+    }
+
+    function findButtonPlacement() {
+        const candidates = [
+            {
+                selector: '#buyboxAccordion .a-accordion-active .basisPriceLegalMessage',
+                getPlacement: element => ({ type: 'after', node: element })
+            },
+            {
+                selector: '.basisPriceLegalMessage',
+                getPlacement: element => ({ type: 'after', node: element })
+            },
+            {
+                selector: '#buyboxAccordion .a-accordion-active .priceToPay',
+                getPlacement: element => {
+                    const parentSection = element.closest('.a-section');
+                    if (parentSection && isElementVisible(parentSection)) {
+                        return { type: 'append', node: parentSection };
                     }
+                    return null;
                 }
-                priceContainer = priceContainerVar.querySelector('.a-span12');
-                if (priceContainer) {
-                    const affiliateButton = createButton(asin);
-                    //priceContainer.parentNode.insertAdjacentElement('afterend', affiliateButton);
-                    priceContainer.parentNode.insertAdjacentElement('beforeend', affiliateButton);
+            },
+            {
+                selector: '#corePrice_desktop .a-span12',
+                getPlacement: element => {
+                    const parent = element.parentNode || element;
+                    return { type: 'append', node: parent };
                 }
+            },
+            {
+                selector: '#corePrice_mobile_feature_div',
+                getPlacement: element => ({ type: 'append', node: element })
+            },
+            {
+                selector: '#bookDescription_feature_div',
+                getPlacement: element => ({ type: 'before', node: element })
+            }
+        ];
+
+        for (const candidate of candidates) {
+            const elements = Array.from(document.querySelectorAll(candidate.selector));
+            for (const element of elements) {
+                if (!isElementVisible(element)) {
+                    continue;
+                }
+
+                const placement = candidate.getPlacement(element);
+                if (placement) {
+                    return placement;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function updateButtonLink(asin) {
+        const affiliateAnchor = document.querySelector(`#${BUTTON_ID}`);
+        if (affiliateAnchor && !isAffiliateTagPresent()) {
+            affiliateAnchor.href = `${baseUrlPickme}/monsieurconso/product.php?asin=${asin}`;
+        }
+    }
+
+    function insertButtonContainer(container, placement) {
+        if (!placement || !placement.node) {
+            return;
+        }
+
+        if (placement.type === 'after') {
+            const parentNode = placement.node.parentNode;
+            if (!parentNode) {
+                return;
+            }
+            if (container.parentNode !== parentNode || container.previousSibling !== placement.node) {
+                parentNode.insertBefore(container, placement.node.nextSibling);
+            }
+        } else if (placement.type === 'append') {
+            if (container.parentNode !== placement.node) {
+                placement.node.appendChild(container);
+            } else if (container !== placement.node.lastElementChild) {
+                placement.node.appendChild(container);
+            }
+        } else if (placement.type === 'before') {
+            const parentNode = placement.node.parentNode;
+            if (!parentNode) {
+                return;
+            }
+            if (container.parentNode !== parentNode || container.nextSibling !== placement.node) {
+                parentNode.insertBefore(container, placement.node);
             }
         }
     }
 
     function createButton(asin) {
-        var container = document.createElement('div');
+        const container = document.createElement('div');
+        container.id = BUTTON_CONTAINER_ID;
         container.style.display = 'inline-flex';
         container.style.alignItems = 'center';
 
-        var affiliateButton = document.createElement('a');
-
+        const affiliateButton = document.createElement('a');
         affiliateButton.className = 'a-button a-button-primary a-button-small';
-        affiliateButton.id = 'pickme-button';
-        affiliateButton.style.marginTop = '5px'; // Pour ajouter un peu d'espace au-dessus du bouton
+        affiliateButton.id = BUTTON_ID;
+        affiliateButton.style.marginTop = '5px';
         affiliateButton.style.marginBottom = '5px';
-        affiliateButton.style.color = 'white'; // Changez la couleur du texte en noir
-        affiliateButton.style.maxWidth = '200px';
+        affiliateButton.style.color = 'white';
         affiliateButton.style.height = '29px';
         affiliateButton.style.lineHeight = '29px';
         affiliateButton.style.borderRadius = '20px';
@@ -80,47 +156,110 @@
         affiliateButton.style.backgroundColor = '#CC0033';
         affiliateButton.style.border = '1px solid white';
         affiliateButton.style.display = 'inline-block';
+        affiliateButton.style.fontSize = '14px';
+
         if (isAffiliateTagPresent()) {
             affiliateButton.innerText = 'Lien PickMe actif';
-            affiliateButton.style.backgroundColor = 'green'; // Changez la couleur de fond en vert
-            affiliateButton.style.color = 'white';
-            affiliateButton.style.pointerEvents = 'none'; // Empêchez tout événement de clic
+            affiliateButton.style.backgroundColor = 'green';
+            affiliateButton.style.pointerEvents = 'none';
             affiliateButton.style.cursor = 'default';
             affiliateButton.style.border = '1px solid black';
             container.appendChild(affiliateButton);
         } else {
-            affiliateButton.href = `https://pickme.alwaysdata.net/monsieurconso/product.php?asin=${asin}`;
+            affiliateButton.href = `${baseUrlPickme}/monsieurconso/product.php?asin=${asin}`;
             affiliateButton.innerText = 'Acheter via PickMe';
             affiliateButton.target = '_blank';
-            var infoText = document.createElement('span'); // Créer l'élément de texte d'explication
+
+            const infoText = document.createElement('span');
             infoText.innerHTML = '<b>A quoi sert ce bouton ?</b>';
             infoText.style.marginLeft = '5px';
             infoText.style.color = '#CC0033';
             infoText.style.cursor = 'pointer';
             infoText.style.fontSize = '14px';
-            infoText.onclick = function() {
-                alert("Ce bouton permet de soutenir la communauté Vine. Il n'y a strictement aucune conséquence sur votre achat, mise à part d'aider.\n\nComment faire ?\n\nIl suffit de cliquer sur 'Acheter via PickMe' et dans la nouvelle fenêtre de cliquer sur 'Acheter sur Amazon'. Normalement le bouton sera devenu vert, il suffit alors d'ajouter le produit au panier (uniquement quand le bouton est vert) et c'est tout !\nMerci beaucoup !");
-            };
+            infoText.addEventListener('click', function() {
+                alert("Ce bouton permet de soutenir le discord Amazon Vine FR. Il n'y a strictement aucune conséquence sur votre achat, mise à part d'aider à maintenir les services du discord et de PickMe.\n\nComment faire ?\n\nIl suffit de cliquer sur 'Acheter via PickMe' et dans la nouvelle fenêtre de cliquer sur 'Acheter sur Amazon'. Normalement le bouton sera devenu vert, il suffit alors d'ajouter le produit au panier (uniquement quand le bouton est vert) et c'est tout !\nMerci beaucoup !");
+            });
+
             container.appendChild(affiliateButton);
             container.appendChild(infoText);
         }
-        affiliateButton.style.fontSize = '14px';
+
         return container;
     }
 
-    var asinProduct = getASINfromURL(window.location.href);
+    function addButton(asin) {
+        if (!asin) {
+            return;
+        }
 
-    if (asinProduct) {
-        addButton(asinProduct);
-        const observer = new MutationObserver(mutations => {
-            mutations.forEach(mutation => {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    asinProduct = getASINfromURL(window.location.href);
-                    addButton(asinProduct);
-                }
-            });
+        const placement = findButtonPlacement();
+        if (!placement) {
+            return;
+        }
+
+        let buttonContainer = document.querySelector(`#${BUTTON_CONTAINER_ID}`);
+        if (!buttonContainer) {
+            buttonContainer = createButton(asin);
+        } else {
+            updateButtonLink(asin);
+        }
+
+        insertButtonContainer(buttonContainer, placement);
+    }
+
+    function scheduleButtonRefresh() {
+        if (scheduleButtonRefresh.scheduled) {
+            return;
+        }
+        scheduleButtonRefresh.scheduled = true;
+        requestAnimationFrame(() => {
+            scheduleButtonRefresh.scheduled = false;
+            const asin = getASINfromURL(window.location.href);
+            if (asin) {
+                addButton(asin);
+            }
         });
-        observer.observe(document.body, { childList: true, subtree: true });
-        return;
+    }
+
+    function init() {
+        const asin = getASINfromURL(window.location.href);
+        if (!asin) {
+            return;
+        }
+
+        addButton(asin);
+
+        const bodyObserver = new MutationObserver(scheduleButtonRefresh);
+        bodyObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        const buyboxAccordion = document.getElementById('buyboxAccordion');
+        if (buyboxAccordion) {
+            const accordionObserver = new MutationObserver(scheduleButtonRefresh);
+            accordionObserver.observe(buyboxAccordion, {
+                attributes: true,
+                subtree: true,
+                attributeFilter: ['class', 'style', 'aria-hidden']
+            });
+        }
+
+        window.addEventListener('popstate', scheduleButtonRefresh);
+        window.addEventListener('hashchange', scheduleButtonRefresh);
+
+        let lastHref = window.location.href;
+        setInterval(() => {
+            if (lastHref !== window.location.href) {
+                lastHref = window.location.href;
+                scheduleButtonRefresh();
+            }
+        }, 1000);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
     }
 })();
